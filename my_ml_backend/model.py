@@ -23,7 +23,6 @@ IMAGE_SIZE = (640, 640)
 class NewModel(LabelStudioMLBase):
     """Custom ML Backend model
     """
-
     def __init__(self, device=DEVICE, img_size=IMAGE_SIZE, repo=REPO, train_output=None, **kwargs):
         super(NewModel, self).__init__(**kwargs)
         upload_dir = os.path.join(get_data_dir(), 'media', 'upload')
@@ -34,7 +33,6 @@ class NewModel(LabelStudioMLBase):
         self.img_size = img_size
         self.repo = repo
         self.image_dir = upload_dir
-
         self.weights = WEIGHTS
 
         print("------------------Loading the Model---------------")
@@ -42,9 +40,6 @@ class NewModel(LabelStudioMLBase):
             self.repo, 'custom', self.weights, source='local', trust_repo=True)
         
         print("------------------Model Loaded---------------")
-
-
-        # print(self.model, "___________model____________")
 
         # getting all neccessary variable to return from predict method.
         # rectanglelabels
@@ -56,14 +51,13 @@ class NewModel(LabelStudioMLBase):
             self.parsed_label_config, self.annotation_type, self.object_type
         )
 
-        print(self.from_name, self.to_name, self.value,
-              self.annotation_labels, "#####################", self.annotation_type)
-
+    
     def setup(self):
         """Configure any paramaters of your model here
         """
         self.set("model_version", "0.0.1")
 
+    
     def download_labeled_tasks(self, project_id):
         """
         Download all labeled tasks from a particular project using the Label Studio SDK.
@@ -81,29 +75,19 @@ class NewModel(LabelStudioMLBase):
 
         return tasks
 
+    
     def _get_image_url(self, task):
         # image_url = '/data/upload/4/53c37ced-football_image.jpeg'
         image_url = task['data'][self.value]
         return image_url
 
+    
     def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> List[Dict]:
         """ Write your inference logic here
             :param tasks: gets the task of not predicted task which was opened.[Label Studio tasks in JSON format](https://labelstud.io/guide/task_format.html)
             :param context: [Label Studio context in JSON format](https://labelstud.io/guide/ml_create#Implement-prediction-logic)
             :return predictions: [Predictions array in JSON format](https://labelstud.io/guide/export.html#Label-Studio-JSON-format-of-annotated-tasks)
         """
-        print(f'''\
-        Run prediction on {tasks}
-        ------------------------------------------------
-        Received context: {context}
-        ------------------------------------------------
-        Project ID: {self.project_id}
-        ------------------------------------------------
-        Label config: {self.label_config}
-        ------------------------------------------------
-        Parsed JSON Label config: {self.parsed_label_config}
-        ------------------------------------------------
-        Extra params: {self.extra_params}''')
 
         print(f"the model uses: {self.weights} to predict")
 
@@ -120,7 +104,6 @@ class NewModel(LabelStudioMLBase):
             preds = self.model(img)
             preds_df = preds.pandas().xyxy[0]
 
-            print(preds_df.head())
             for x_min, y_min, x_max, y_max, confidence, class_, name_ in zip(preds_df['xmin'], preds_df['ymin'],
                                                                              preds_df['xmax'], preds_df['ymax'],
                                                                              preds_df['confidence'], preds_df['class'],
@@ -149,25 +132,8 @@ class NewModel(LabelStudioMLBase):
             'result': results,
             'score': avg_score
         }]
-
-        print(f'{image_url} -------- {image_path} =========== {img} ------------- {img_height, img_width} ----{index}')
-        # example for simple classification
-        # return [{
-        #     "model_version": self.get("model_version"),
-        #     "score": 0.12,
-        #     "result": [{
-        #         "id": "vgzE336-a8",
-        #         "from_name": "sentiment",
-        #         "to_name": "text",
-        #         "type": "choices",
-        #         "value": {
-        #             "choices": [ "Negative" ]
-        #         }
-        #     }]
-        # }]
-
-        return []
-
+       
+       
     def fit(self, event, data, **kwargs):
         """
         This method is called each time an annotation is created or updated
