@@ -7,11 +7,9 @@ from label_studio_ml.utils import get_image_size, get_single_tag_keys, is_skippe
 from label_studio.core.utils.io import  get_data_dir
 from PIL import Image
 from dotenv import load_dotenv
-from train_yolo import trainyolov8
-from rq import Queue, Worker, Connection
+from train_yolo import traintheyolov8
 from redis import Redis
-
-
+from rq import Queue
 
 IMG_DATA = 'my_ml_backyolotest/data/images/'
 LABEL_DATA = 'my_ml_backyolotest/data/labels/'
@@ -33,8 +31,7 @@ load_dotenv()
 LABEL_STUDIO_HOST = os.getenv("LABEL_STUDIO_HOST")
 LABEL_STUDIO_API_KEY = os.getenv("LABEL_STUDIO_API_KEY")
 
-
-queue = Queue(connection=Redis())
+redis_conn = Redis(host='localhost', port=6379, db=0)
 
 
 if not LABEL_STUDIO_HOST or not LABEL_STUDIO_API_KEY:
@@ -113,7 +110,7 @@ class NewModel(LabelStudioMLBase):
     def _get_image_url(self,task):
         image_url = task['data'][self.value]
         return image_url
-
+    
     def extract_data_from_tasks(self, tasks):
         img_labels = []
         for task in tasks:
@@ -195,23 +192,9 @@ class NewModel(LabelStudioMLBase):
 
         # for dir_path in [IMG_DATA, LABEL_DATA]:
         #     self.reset_train_dir(dir_path)
-        
-
-
-
-
-
-
-
-
-
-
         #===================================optimize the loop becuse whenever the update or submit is clicked the entire process is running which takes more time==================
 
-
-
-
-        print(f"===========daata  ========================= {data}")
+        print(f"===========data  ========================= {data}")
         if data:
             #data = kwargs['data']
             project = data['project']['id']
@@ -224,18 +207,16 @@ class NewModel(LabelStudioMLBase):
         # use cache to retrieve the data from the previous fit() runs
         print(f"========================print the data===================================================================") 
 
-
-
-
-
        #======================================implement the train in the rq worker which shoul run in the background==========================================================================
     
-        customyamlpath = "ml_backend_yolov8test\custum.yaml"
-        #trainyolov8(custom_yaml_path= customyamlpath)
-        job = queue.enqueue(trainyolov8, customyamlpath)
-        print(f"Training job enqueued with ID {job.id}")
+        customyamlpath = "my_ml_backyolotest\custum.yaml"
+        traintheyolov8(custom_yaml_path= customyamlpath)
+        
+        # queue = Queue(connection=redis_conn)
+        # job = queue.enqueue(traintheyolov8,"ml_backend_yolov8test\custum.yaml") 
 
-
+        #================================================================================================================================================================
+       
         # use cache to retrieve the data from the previous fit() runs
         old_data = self.get('my_data')
         old_model_version = self.get('model_version')
