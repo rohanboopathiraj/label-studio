@@ -3,10 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YOLO Integration with Label Studio - README</title>
 </head>
 <body>
-    <h1>YOLO Integration with Label Studio - README</h1>
+    <h1>YOLO Latest version Integration with Label Studio Backend</h1>
     <p>This guide provides instructions on integrating the YOLO model with Label Studio using the Label Studio ML backend. It is recommended to use WSL (Windows Subsystem for Linux) or a Linux environment to avoid issues with the fork package.</p>
     
 <h2>Prerequisites</h2>
