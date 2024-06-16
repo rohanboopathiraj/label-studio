@@ -7,9 +7,10 @@ from label_studio_ml.utils import get_image_size, get_single_tag_keys, is_skippe
 from label_studio.core.utils.io import  get_data_dir
 from PIL import Image
 from dotenv import load_dotenv
-from train_yolo import trainyolov8
-from rq import Queue, Worker, Connection
+from train_yolo import traintheyolov8
 from redis import Redis
+from rq import Queue
+
 
 
 
@@ -33,8 +34,7 @@ load_dotenv()
 LABEL_STUDIO_HOST = os.getenv("LABEL_STUDIO_HOST")
 LABEL_STUDIO_API_KEY = os.getenv("LABEL_STUDIO_API_KEY")
 
-
-queue = Queue(connection=Redis())
+redis_conn = Redis(host='localhost', port=6379, db=0)
 
 
 if not LABEL_STUDIO_HOST or not LABEL_STUDIO_API_KEY:
@@ -113,7 +113,7 @@ class NewModel(LabelStudioMLBase):
     def _get_image_url(self,task):
         image_url = task['data'][self.value]
         return image_url
-
+    
     def extract_data_from_tasks(self, tasks):
         img_labels = []
         for task in tasks:
@@ -123,7 +123,8 @@ class NewModel(LabelStudioMLBase):
                         
             image_url = self._get_image_url(task)
             image_path = self.get_local_path(image_url)
-            image_name = image_path.split("\\")[-1]
+            image_name = image_path.split("/")[-1]
+            
             Image.open(image_path).save(IMG_DATA+image_name)
 
             img_labels.append(task['annotations'][0]['result'])
@@ -158,25 +159,6 @@ class NewModel(LabelStudioMLBase):
         Label config: {self.label_config}
         Parsed JSON Label config: {self.parsed_label_config}
         Extra params: {self.extra_params}''')
-
-        # example for resource downloading from Label Studio instance,
-        # you need to set env vars LABEL_STUDIO_URL and LABEL_STUDIO_API_KEY
-        # path = self.get_local_path(tasks[0]['data']['image_url'], task_id=tasks[0]['id'])
-
-        # example for simple classification
-        # return [{
-        #     "model_version": self.get("model_version"),
-        #     "score": 0.12,
-        #     "result": [{
-        #         "id": "vgzE336-a8",
-        #         "from_name": "sentiment",
-        #         "to_name": "text",
-        #         "type": "choices",
-        #         "value": {
-        #             "choices": [ "Negative" ]
-        #         }
-        #     }]
-        # }]
         
         return ModelResponse(predictions=[])
     
@@ -189,54 +171,17 @@ class NewModel(LabelStudioMLBase):
         :param event: event type can be ('ANNOTATION_CREATED', 'ANNOTATION_UPDATED', 'START_TRAINING')
         :param data: the payload received from the event (check [Webhook event reference](https://labelstud.io/guide/webhook_reference.html))
         """
-        print("--------------------------------------------------Start training--------------------------------------------------------")
-        print("===============================================line 1 is perfect================================================================")
-        print(f"=========================the current working dir is==================={os. getcwd()}===================================")
-
-        # for dir_path in [IMG_DATA, LABEL_DATA]:
-        #     self.reset_train_dir(dir_path)
-        
-
-
-
-
-
-
-
-
-
-
-        #===================================optimize the loop becuse whenever the update or submit is clicked the entire process is running which takes more time==================
-
-
-
-
-        print(f"===========daata  ========================= {data}")
         if data:
             #data = kwargs['data']
             project = data['project']['id']
-            print(f"=======================project is this {project}")
             tasks = self.download_tasks(project)   
             self.extract_data_from_tasks(tasks) 
         else:
             self.extract_data_from_tasks(tasks)
+         
+        queue = Queue(connection=redis_conn)
+        job = queue.enqueue(traintheyolov8) 
 
-        # use cache to retrieve the data from the previous fit() runs
-        print(f"========================print the data===================================================================") 
-
-
-
-
-
-       #======================================implement the train in the rq worker which shoul run in the background==========================================================================
-    
-        customyamlpath = "ml_backend_yolov8test\custum.yaml"
-        #trainyolov8(custom_yaml_path= customyamlpath)
-        job = queue.enqueue(trainyolov8, customyamlpath)
-        print(f"Training job enqueued with ID {job.id}")
-
-
-        # use cache to retrieve the data from the previous fit() runs
         old_data = self.get('my_data')
         old_model_version = self.get('model_version')
         print(f'Old data: {old_data}')

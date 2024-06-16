@@ -1,58 +1,79 @@
-This guide describes the simplest way to start using ML backend with Label Studio.
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Integration with Label Studio - README</title>
+</head>
+<body>
+    <h1>YOLO Integration with Label Studio - README</h1>
+    <p>This guide provides instructions on integrating the YOLO model with Label Studio using the Label Studio ML backend. It is recommended to use WSL (Windows Subsystem for Linux) or a Linux environment to avoid issues with the fork package.</p>
+    
+    <h2>Prerequisites</h2>
+    <ul>
+        <li>Windows with WSL installed or a Linux environment</li>
+        <li>Python 3.6 or higher</li>
+        <li>Redis server</li>
+        <li>Label Studio</li>
+    </ul>
 
-## Running with Docker (Recommended)
+    <h2>Installation Steps</h2>
 
-1. Start Machine Learning backend on `http://localhost:9090` with prebuilt image:
+    <h3>1. Install Required Packages</h3>
+    <p>First, install the necessary Python packages:</p>
+    <pre><code>pip install ultralytics redis rq</code></pre>
 
-```bash
-docker-compose up
-```
+    <h3>2. Install Label Studio</h3>
+    <p>Upgrade and install Label Studio:</p>
+    <pre><code>pip install -U label-studio</code></pre>
 
-2. Validate that backend is running
+    <h3>3. Install Label Studio Backend</h3>
+    <p>Follow the guide provided on the Label Studio website to set up the ML backend: 
+        <a href="https://labelstud.io/guide/ml_create" target="_blank">Label Studio ML Backend Guide</a>
+    </p>
 
-```bash
-$ curl http://localhost:9090/
-{"status":"UP"}
-```
+    <h3>4. Integrate the Backend with Label Studio</h3>
+    <p>To integrate the YOLO model backend with Label Studio, follow these steps:</p>
 
-3. Connect to the backend from Label Studio running on the same host: go to your project `Settings -> Machine Learning -> Add Model` and specify `http://localhost:9090` as a URL.
+    <h4>I. Install WSL (if using Windows)</h4>
+    <p>For a detailed guide on installing WSL, visit the official Microsoft documentation: 
+        <a href="https://learn.microsoft.com/en-us/windows/wsl/install" target="_blank">Install WSL</a>
+    </p>
+    <p>After setting up WSL, install the necessary packages:</p>
+    <pre><code>pip install python ultralytics torch redis rq</code></pre>
+    <p>If you encounter any errors, refer to the <a href="https://pypi.org/" target="_blank">PyPI documentation</a> for troubleshooting.</p>
 
+    <h4>II. Start the Redis Server</h4>
+    <p>Open an Ubuntu terminal and start the Redis server:</p>
+    <pre><code>redis-server</code></pre>
 
-## Building from source (Advanced)
+    <h4>III. Run the Worker</h4>
+    <p>Open another Ubuntu terminal, navigate to your YOLO backend directory, and run the worker:</p>
+    <pre><code>cd my_ml_backyolotest
+python3 worker_rq.py</code></pre>
 
-To build the ML backend from source, you have to clone the repository and build the Docker image:
+    <h4>IV. Start the ML Backend</h4>
+    <p>Open another Ubuntu terminal and start the ML backend:</p>
+    <pre><code>label-studio-ml start my_ml_backyolotest</code></pre>
 
-```bash
-docker-compose build
-```
+    <h2>Using Label Studio</h2>
+    <ol>
+        <li>Open your web browser and navigate to <a href="http://localhost:8080" target="_blank">http://localhost:8080</a>.</li>
+        <li>Create a new project and select the Object Detection template.</li>
+        <li>Upload your images for annotation.</li>
+        <li>Connect the YOLO model to your project:
+            <ul>
+                <li>Go to the <strong>Settings</strong> in the top navigation bar.</li>
+                <li>Find the <strong>Model</strong> section in the left sidebar.</li>
+                <li>Connect your model by following the prompts.</li>
+            </ul>
+        </li>
+    </ol>
+    <p>You are now ready to use YOLO for object detection in Label Studio!</p>
+    
+    <p>This README provides a structured guide for setting up and integrating YOLO with Label Studio. If you encounter any issues, refer to the respective documentation for detailed troubleshooting steps.</p>
+</body>
+</html>
 
-## Running without Docker (Advanced)
+ 
 
-To run the ML backend without Docker, you have to clone the repository and install all dependencies using pip:
-
-```bash
-python -m venv ml-backend
-source ml-backend/bin/activate
-pip install -r requirements.txt
-```
-
-Then you can start the ML backend:
-
-```bash
-label-studio-ml start ./dir_with_your_model
-```
-
-# Configuration
-Parameters can be set in `docker-compose.yml` before running the container.
-
-
-The following common parameters are available:
-- `BASIC_AUTH_USER` - specify the basic auth user for the model server
-- `BASIC_AUTH_PASS` - specify the basic auth password for the model server
-- `LOG_LEVEL` - set the log level for the model server
-- `WORKERS` - specify the number of workers for the model server
-- `THREADS` - specify the number of threads for the model server
-
-# Customization
-
-The ML backend can be customized by adding your own models and logic inside the `./dir_with_your_model` directory. 
