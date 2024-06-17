@@ -1,45 +1,61 @@
-import os
-import torch
-from dotenv import load_dotenv
-from PIL import Image
-
 from typing import List, Dict, Optional
 from label_studio_ml.model import LabelStudioMLBase
-from label_studio_ml.utils import get_image_size, get_single_tag_keys
-from label_studio.core.utils.io import get_data_dir
+from label_studio_ml.response import ModelResponse
+import os, sys, random, shutil
 import label_studio_sdk
+from label_studio_ml.utils import get_image_size, get_single_tag_keys, is_skipped
+from label_studio.core.utils.io import  get_data_dir
+from PIL import Image
+from dotenv import load_dotenv
+from train_yolo import traintheyolov8
+from redis import Redis
+from rq import Queue
+
+
+
+
+IMG_DATA = 'my_ml_backyolotest/data/images/'
+LABEL_DATA = 'my_ml_backyolotest/data/labels/'
+
+# Function to create directory if it does not exist
+def create_dir_if_not_exists(directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Directory '{directory}' created.")
+    else:
+        print(f"Directory '{directory}' already exists.")
+
+# Check and create directories
+create_dir_if_not_exists(IMG_DATA)
+create_dir_if_not_exists(LABEL_DATA)
 
 
 load_dotenv()
 LABEL_STUDIO_HOST = os.getenv("LABEL_STUDIO_HOST")
 LABEL_STUDIO_API_KEY = os.getenv("LABEL_STUDIO_API_KEY")
 
-WEIGHTS = './yolov7/yolov7.pt'
-DEVICE = '0' if torch.cuda.is_available() else 'cpu'
-REPO = "./yolov7"
-IMAGE_SIZE = (640, 640)
+redis_conn = Redis(host='localhost', port=6379, db=0)
+
+
+if not LABEL_STUDIO_HOST or not LABEL_STUDIO_API_KEY:
+    raise ValueError("LABEL_STUDIO_HOST and LABEL_STUDIO_API_KEY must be set in the .env file")
 
 
 class NewModel(LabelStudioMLBase):
     """Custom ML Backend model
     """
 
-    def __init__(self, device=DEVICE, img_size=IMAGE_SIZE, repo=REPO, train_output=None, **kwargs):
+    def __init__(self, **kwargs):
         super(NewModel, self).__init__(**kwargs)
+        
+        
         upload_dir = os.path.join(get_data_dir(), 'media', 'upload')
 
         self.hostname = LABEL_STUDIO_HOST
         self.access_token = LABEL_STUDIO_API_KEY
-        self.device = device
-        self.img_size = img_size
-        self.repo = repo
+        
         self.image_dir = upload_dir
 
-        self.weights = WEIGHTS
-
-        print("------------------Loading the Model---------------")
-        self.model = torch.hub.load(
-            self.repo, 'custom', self.weights, source='local', trust_repo=True)
         
         print("------------------Model Loaded---------------")
 
@@ -59,130 +75,113 @@ class NewModel(LabelStudioMLBase):
         print(self.from_name, self.to_name, self.value,
               self.annotation_labels, "#####################", self.annotation_type)
 
+    
     def setup(self):
-        """Configure any paramaters of your model here
+        """Configure any parameters of your model here
         """
         self.set("model_version", "0.0.1")
+    
 
-    def download_labeled_tasks(self, project_id):
-        """
-        Download all labeled tasks from a particular project using the Label Studio SDK.
-        Read more about SDK here https://labelstud.io/sdk/
+    def reset_train_dir(self, dir_path):
+        #remove cache file and reset train/val dir
+        if os.path.isfile(os.path.join(dir_path,"train.cache")):
+            os.remove(os.path.join(LABEL_DATA, "train.cache"))
+            os.remove(os.path.join(LABEL_DATA, "val.cache"))
 
-        Parameters:
-            project_id (int): Used to uniquely identify the project we are working.
-
-        Returns:
-            list of dict [{}]: returns all labeled tasks.
-        """
-        ls = label_studio_sdk.Client(LABEL_STUDIO_HOST, LABEL_STUDIO_API_KEY)
-        project = ls.get_project(id=project_id)  # For testing keep id=3
-        tasks = project.get_labeled_tasks()
-
-        return tasks
-
-    def _get_image_url(self, task):
-        # image_url = '/data/upload/4/53c37ced-football_image.jpeg'
+        for dir in os.listdir(dir_path):
+            shutil.rmtree(os.path.join(dir_path, dir))
+            os.makedirs(os.path.join(dir_path, dir))
+    
+    def _get_image_url(self,task):
         image_url = task['data'][self.value]
         return image_url
 
-    def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> List[Dict]:
+
+    def download_tasks(self, project):
+        """
+        Download all labeled tasks from project using the Label Studio SDK.
+        Read more about SDK here https://labelstud.io/sdk/
+        :param project: project ID
+        :return:
+        """
+        ls = label_studio_sdk.Client(LABEL_STUDIO_HOST, LABEL_STUDIO_API_KEY)
+        project = ls.get_project(id=project)
+        tasks = project.get_labeled_tasks()
+        return tasks
+    
+
+    def _get_image_url(self,task):
+        image_url = task['data'][self.value]
+        return image_url
+    
+    def extract_data_from_tasks(self, tasks):
+        img_labels = []
+        for task in tasks:
+                
+            if is_skipped(task):
+                continue
+                        
+            image_url = self._get_image_url(task)
+            image_path = self.get_local_path(image_url)
+            image_name = image_path.split("/")[-1]
+            
+            Image.open(image_path).save(IMG_DATA+image_name)
+
+            img_labels.append(task['annotations'][0]['result'])
+
+            for annotation in task['annotations']:
+                for bbox in annotation['result']:
+                    bb_width = (bbox['value']['width']) / 100
+                    bb_height = (bbox['value']['height']) / 100
+                    x = (bbox['value']['x'] / 100 ) + (bb_width/2)
+                    y = (bbox['value']['y'] / 100 ) + (bb_height/2)
+                    label = bbox['value']['rectanglelabels']
+
+                    #you need to get the label idx later on 
+                    label_idx = 0
+                        
+                    with open(LABEL_DATA+image_name[:-4]+'.txt', 'a') as f:
+                        f.write(f"{label_idx} {x} {y} {bb_width} {bb_height}\n")    
+        
+
+    def predict(self, tasks: List[Dict], context: Optional[Dict] = None, **kwargs) -> ModelResponse:
         """ Write your inference logic here
-            :param tasks: gets the task of not predicted task which was opened.[Label Studio tasks in JSON format](https://labelstud.io/guide/task_format.html)
+            :param tasks: [Label Studio tasks in JSON format](https://labelstud.io/guide/task_format.html)
             :param context: [Label Studio context in JSON format](https://labelstud.io/guide/ml_create#Implement-prediction-logic)
-            :return predictions: [Predictions array in JSON format](https://labelstud.io/guide/export.html#Label-Studio-JSON-format-of-annotated-tasks)
+            :return model_response
+                ModelResponse(predictions=predictions) with
+                predictions: [Predictions array in JSON format](https://labelstud.io/guide/export.html#Label-Studio-JSON-format-of-annotated-tasks)
         """
         print(f'''\
         Run prediction on {tasks}
-        ------------------------------------------------
         Received context: {context}
-        ------------------------------------------------
         Project ID: {self.project_id}
-        ------------------------------------------------
         Label config: {self.label_config}
-        ------------------------------------------------
         Parsed JSON Label config: {self.parsed_label_config}
-        ------------------------------------------------
         Extra params: {self.extra_params}''')
-
-        print(f"the model uses: {self.weights} to predict")
-
-        results = []
-        all_scores = []
-
-        for index, task in enumerate(tasks):
-            image_url = self._get_image_url(task)
-            image_path = self.get_local_path(
-                image_url, project_dir=self.image_dir)
-            img = Image.open(image_path)
-            img_width, img_height = get_image_size(image_path)
-
-            preds = self.model(img)
-            preds_df = preds.pandas().xyxy[0]
-
-            print(preds_df.head())
-            for x_min, y_min, x_max, y_max, confidence, class_, name_ in zip(preds_df['xmin'], preds_df['ymin'],
-                                                                             preds_df['xmax'], preds_df['ymax'],
-                                                                             preds_df['confidence'], preds_df['class'],
-                                                                             preds_df['name']):
-                results.append({
-                    'from_name': self.from_name,
-                    'to_name': self.to_name,
-                    "original_width": img_width,
-                    "original_height": img_height,
-                    'type': self.annotation_type.lower(),
-                    'value': {
-                        self.annotation_type.lower(): [name_],
-                        'x': x_min / img_width * 100,
-                        'y': y_min / img_height * 100,
-                        'width': (x_max - x_min) / img_width * 100,
-                        'height': (y_max - y_min) / img_height * 100
-                    },
-                    'score': confidence
-                })
-
-                all_scores.append(confidence)
-
-                avg_score = sum(all_scores) / max(len(all_scores), 1)
-
-        return [{
-            'result': results,
-            'score': avg_score
-        }]
-
-        print(f'{image_url} -------- {image_path} =========== {img} ------------- {img_height, img_width} ----{index}')
-        # example for simple classification
-        # return [{
-        #     "model_version": self.get("model_version"),
-        #     "score": 0.12,
-        #     "result": [{
-        #         "id": "vgzE336-a8",
-        #         "from_name": "sentiment",
-        #         "to_name": "text",
-        #         "type": "choices",
-        #         "value": {
-        #             "choices": [ "Negative" ]
-        #         }
-        #     }]
-        # }]
-
-        return []
-
+        
+        return ModelResponse(predictions=[])
+    
     def fit(self, event, data, **kwargs):
         """
         This method is called each time an annotation is created or updated
         You can run your logic here to update the model and persist it to the cache
         It is not recommended to perform long-running operations here, as it will block the main thread
         Instead, consider running a separate process or a thread (like RQ worker) to perform the training
-        :param event: event type can be ('ANNOTATION_CREATED', 'ANNOTATION_UPDATED')
+        :param event: event type can be ('ANNOTATION_CREATED', 'ANNOTATION_UPDATED', 'START_TRAINING')
         :param data: the payload received from the event (check [Webhook event reference](https://labelstud.io/guide/webhook_reference.html))
         """
+        if data:
+            #data = kwargs['data']
+            project = data['project']['id']
+            tasks = self.download_tasks(project)   
+            self.extract_data_from_tasks(tasks) 
+        else:
+            self.extract_data_from_tasks(tasks)
+         
+        queue = Queue(connection=redis_conn)
+        job = queue.enqueue(traintheyolov8) 
 
-        task = self.download_labeled_tasks(4)
-        print("-----------*******************")
-        print(task)
-
-        # use cache to retrieve the data from the previous fit() runs
         old_data = self.get('my_data')
         old_model_version = self.get('model_version')
         print(f'Old data: {old_data}')
@@ -195,6 +194,4 @@ class NewModel(LabelStudioMLBase):
         print(f'New model version: {self.get("model_version")}')
 
         print('fit() completed successfully.')
-
-
 
